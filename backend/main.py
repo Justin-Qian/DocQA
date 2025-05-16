@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from openai import OpenAI
+from typing import List
 
 load_dotenv()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -19,6 +20,7 @@ app.add_middleware(
 
 class AskIn(BaseModel):
     question: str
+    references: List[str]
 
 # 你展示的原始内容作为上下文
 BASE_CONTEXT = """
@@ -36,7 +38,9 @@ If a plant gets too little sunlight, or is in very dry soil, it may grow slowly 
 @app.post("/ask")
 async def ask(payload: AskIn):
     user_question = payload.question
+    user_references = payload.references
 
+    # 保持原有的固定sources
     sources = [
         {"id": 1, "snippet": "Sunlight helps plants make their own food through a process called photosynthesis."},
         {"id": 2, "snippet": "Soil supports the plant and gives it important nutrients like nitrogen and potassium."},
@@ -48,9 +52,13 @@ async def ask(payload: AskIn):
     # 构建 sources 字符串
     sources_text = "\n".join([f"[{s['id']}] {s['snippet']}" for s in sources])
 
+    # 构建用户引用字符串
+    user_references_text = "\n".join([f"- {ref}" for ref in user_references]) if user_references else "None"
+
     system_prompt = (
-        "You are a helpful assistant. Answer questions based only on the context provided. "
-        "When citing information, add citation markers [1], [2] immediately after the relevant sentence. "
+        "You are a helpful assistant. Answer questions based on the context and available sources. "
+        "When citing information, ONLY use citation markers [1], [2], [3], [4], [5] from the numbered sources provided. "
+        "Do not cite the user references directly, but you can use them to better understand the user's focus. "
         "Use at most 2 citations in your response. Here are some examples:\n\n"
         "Example 1:\n"
         "Q: What do plants need to grow?\n"
@@ -65,7 +73,8 @@ async def ask(payload: AskIn):
 
     user_prompt = (
         f"Context:\n{BASE_CONTEXT}\n\n"
-        f"Available Sources:\n{sources_text}\n\n"
+        f"Available sources (use these for citations):\n{sources_text}\n\n"
+        f"User selected references (use these to understand focus):\n{user_references_text}\n\n"
         f"Question:\n{user_question}"
     )
 
