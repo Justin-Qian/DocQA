@@ -1,180 +1,124 @@
 "use client";
-import { useState } from "react";
-import AnswerRichText from "@/components/AnswerRichText";
-
-
-interface AskResponse {
-  answer: string;
-  sources: Array<{ id: number; page: number; snippet: string }>;
-}
-
-const ORIGINAL_TEXT = [
-  // 第一段
-  "Plants need sunlight, water, air, and soil to grow well.",
-  "Sunlight helps plants make their own food through a process called photosynthesis.",
-  "This is how they turn light into energy.",
-
-  // 第二段
-  "Water is taken in by the roots and moves up through the plant to the leaves.",
-  "Without enough water, a plant may wilt or stop growing.",
-
-  // 第三段
-  "Air gives plants carbon dioxide, which they use along with sunlight to make food.",
-  "This is why plants are usually found in open spaces.",
-
-  // 第四段
-  "Soil supports the plant and gives it important nutrients like nitrogen and potassium.",
-  "These nutrients help plants grow taller, greener, and stronger.",
-
-  // 第五段
-  "If a plant gets too little sunlight, or is in very dry soil, it may grow slowly or not at all.",
-  "People often place their plants near windows or in gardens to give them what they need."
-];
+import { useState, useEffect } from "react";
 
 export default function Home() {
-  const [question, setQuestion] = useState("");
-  const [data, setData] = useState<AskResponse | null>(null);
+  const [question, setQuestion] = useState('');
+  const [answer, setAnswer] = useState('');
   const [loading, setLoading] = useState(false);
-  const [references, setReferences] = useState<string[]>([]);
+  const [sources, setSources] = useState<Array<{ id: number; snippet: string }>>([]);
+  const [pdfUrl, setPdfUrl] = useState<string>('');
 
-  const handleReset = () => {
-    setQuestion("");
-    setData(null);
-    setReferences([]);
-  };
+  // Load PDF when component mounts
+  useEffect(() => {
+    setPdfUrl('/sample.pdf');
+  }, []);
 
-  // 处理文本选择和拖拽
-  const handleMouseDown = (e: React.MouseEvent) => {
-    const container = e.currentTarget as HTMLElement;
-    container.draggable = false;
-  };
+  const handleAsk = async () => {
+    if (!question) return;
 
-  const handleDragStart = (e: React.DragEvent) => {
-    const selection = window.getSelection();
-    if (selection && selection.toString().trim()) {
-      e.dataTransfer.setData("text/plain", selection.toString().trim());
+    try {
+      setLoading(true);
+
+      // Get PDF file
+      const pdfResponse = await fetch('/sample.pdf');
+      const pdfBlob = await pdfResponse.blob();
+      const pdfFile = new File([pdfBlob], 'sample.pdf', { type: 'application/pdf' });
+
+      // Create FormData with both PDF and question
+      const formData = new FormData();
+      formData.append('file', pdfFile);
+      formData.append('question', question);
+
+      // Send request
+      const response = await fetch('http://localhost:8000/ask', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || 'Failed to process question');
+      }
+
+      const data = await response.json();
+      setAnswer(data.answer);
+      setSources(data.sources || []);
+    } catch (error) {
+      console.error('Error:', error);
+      alert(error instanceof Error ? error.message : 'Error processing your question');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleDeleteRef = (indexToDelete: number) => {
-    setReferences(prev => prev.filter((_, index) => index !== indexToDelete));
-  };
-
-  async function handleAsk() {
-    if (!question) return;
-    setLoading(true);
-    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/ask`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        question,
-        references
-      }),
-    });
-    const json = await res.json();
-    setData(json);
-    setLoading(false);
-  }
-
   return (
-    <main className="p-6 max-w-4xl mx-auto space-y-6">
-      <div className="mb-4">
-        <h1 className="inline text-2xl font-bold">DocQA Demo 🌿</h1>
-        <span className="ml-3 text-sm text-gray-500">by Yujia Qian</span>
-      </div>
-      {/* 上部分：原文内容 */}
-      <div
-        className="border p-4 rounded select-text mb-16"
-        onMouseDown={handleMouseDown}
-        onDragStart={handleDragStart}
-      >
-        {ORIGINAL_TEXT.map((text, index) => (
-          <p key={index}>{text}</p>
-        ))}
-      </div>
+    <main className="min-h-screen p-8 bg-gray-50">
+      <div className="max-w-6xl mx-auto space-y-8">
+        <div className="mb-4">
+          <h1 className="inline text-2xl font-bold">DocQA Demo 🌿</h1>
+          <span className="ml-3 text-sm text-gray-500">by Yujia Qian</span>
+        </div>
 
-      {/* 中间：输入区域 */}
-      <div className="flex flex-wrap gap-2 mb-2">
-        {references.map((ref, index) => (
-          <div key={index} className="relative group">
-            <div className="relative">
-              <button className="bg-gray-200 px-2 py-1 rounded text-sm inline-flex items-center">
-                <span>ref {index + 1}</span>
-                <span
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleDeleteRef(index);
-                  }}
-                  className="w-0 group-hover:w-4 overflow-hidden transition-all duration-200
-                           bg-gray-600 text-white rounded ml-1 h-4 flex items-center justify-center text-xs
-                           opacity-0 group-hover:opacity-100 hover:bg-gray-700 cursor-pointer"
-                >
-                  ×
-                </span>
-              </button>
-            </div>
-            <div className="absolute left-0 bottom-full mb-2 p-2 bg-gray-100 text-black text-sm rounded shadow-lg
-                          invisible group-hover:visible w-48 z-10 whitespace-pre-wrap">
-              {ref}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          {/* PDF Viewer */}
+          <div className="p-6 bg-white rounded-lg shadow-md">
+            <h2 className="text-xl font-semibold mb-4">Document</h2>
+            <div className="h-[800px] overflow-hidden rounded-lg border">
+              {pdfUrl && (
+                <iframe
+                  src={pdfUrl}
+                  className="w-full h-full"
+                  title="PDF Viewer"
+                />
+              )}
             </div>
           </div>
-        ))}
-      </div>
-      <div className="flex gap-3">
-        <div className="relative flex-1 group">
-          <input
-            value={question}
-            onChange={(e) => setQuestion(e.target.value)}
-            onDrop={(e) => {
-              e.preventDefault();
-              const text = e.dataTransfer.getData("text/plain");
-              if (text) {
-                setReferences(prev => [...prev, text]);
-              }
-            }}
-            onDragOver={(e) => e.preventDefault()}
-            placeholder="please ask me anything"
-            className="w-full border p-2 rounded"
-          />
-          <span
-            onClick={handleReset}
-            className="absolute right-2 top-1/2 -translate-y-1/2 w-0 group-hover:w-6 overflow-hidden
-                     transition-all duration-200 bg-gray-600 text-white rounded h-6
-                     flex items-center justify-center text-sm opacity-0 group-hover:opacity-100
-                     hover:bg-gray-700 cursor-pointer"
-          >
-            ×
-          </span>
-        </div>
-        <button
-          onClick={handleAsk}
-          disabled={loading}
-          className="bg-blue-600 text-white px-6 py-2 rounded disabled:bg-gray-400"
-        >
-          {loading ? "Loading..." : "Ask"}
-        </button>
-      </div>
 
-      {/* 下部分：回答区域 */}
-      {data && (
-        <div className="border p-4 rounded">
-          <AnswerRichText
-            answer={data.answer}
-            sources={data.sources}
-            onHighlight={(snippet) => {
-              // 当鼠标悬停在引用上时，高亮对应的原文段落
-              const paragraphs = document.querySelectorAll('p');
-              paragraphs.forEach(p => {
-                if (snippet && p.textContent?.includes(snippet)) {
-                  p.classList.add('bg-yellow-100', 'font-bold', 'italic');
-                } else {
-                  p.classList.remove('bg-yellow-100', 'font-bold', 'italic');
-                }
-              });
-            }}
-          />
+          {/* Q&A Section */}
+          <div className="space-y-8">
+            <div className="p-6 bg-white rounded-lg shadow-md">
+              <h2 className="text-xl font-semibold mb-4">Ask a Question</h2>
+              <div className="space-y-4">
+                <input
+                  type="text"
+                  value={question}
+                  onChange={(e) => setQuestion(e.target.value)}
+                  placeholder="Type your question here..."
+                  className="w-full p-2 border rounded"
+                />
+                <button
+                  onClick={handleAsk}
+                  disabled={!question || loading}
+                  className="w-full px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:bg-gray-400"
+                >
+                  {loading ? 'Processing...' : 'Ask Question'}
+                </button>
+              </div>
+            </div>
+
+            {/* Answer Display Section */}
+            {answer && (
+              <div className="p-6 bg-white rounded-lg shadow-md">
+                <h2 className="text-xl font-semibold mb-4">Answer</h2>
+                <p className="whitespace-pre-wrap">{answer}</p>
+
+                {sources.length > 0 && (
+                  <div className="mt-6">
+                    <h3 className="text-lg font-semibold mb-2">Reference Sources</h3>
+                    <div className="space-y-2">
+                      {sources.map((source) => (
+                        <div key={source.id} className="p-3 bg-gray-50 rounded">
+                          <p className="text-sm">{source.snippet}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
-      )}
+      </div>
     </main>
   );
 }

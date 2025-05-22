@@ -1,13 +1,18 @@
 import os
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 from dotenv import load_dotenv
 from openai import OpenAI
 from typing import List
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.embeddings import OpenAIEmbeddings
+from langchain_community.vectorstores import Chroma
+from langchain_community.document_loaders import PyPDFLoader
+import tempfile
 
 load_dotenv()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+embeddings = OpenAIEmbeddings()
 
 app = FastAPI()
 
@@ -18,80 +23,75 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-class AskIn(BaseModel):
-    question: str
-    references: List[str]
+def process_pdf(file: UploadFile):
+    """Process PDF file and return vectorstore"""
+    # Save uploaded file to temporary file
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
+        content = file.file.read()
+        tmp.write(content)
+        tmp_path = tmp.name
 
-# 你展示的原始内容作为上下文
-BASE_CONTEXT = """
-Plants need sunlight, water, air, and soil to grow well. Sunlight helps plants make their own food through a process called photosynthesis. This is how they turn light into energy.
+    try:
+        # Load PDF
+        loader = PyPDFLoader(tmp_path)
+        pages = loader.load()
 
-Water is taken in by the roots and moves up through the plant to the leaves. Without enough water, a plant may wilt or stop growing.
+        # Split text into chunks
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=250,
+            chunk_overlap=50,
+            length_function=len,
+        )
+        chunks = text_splitter.split_documents(pages)
 
-Air gives plants carbon dioxide, which they use along with sunlight to make food. This is why plants are usually found in open spaces.
-
-Soil supports the plant and gives it important nutrients like nitrogen and potassium. These nutrients help plants grow taller, greener, and stronger.
-
-If a plant gets too little sunlight, or is in very dry soil, it may grow slowly or not at all. People often place their plants near windows or in gardens to give them what they need.
-"""
+        # Create vector store
+        return Chroma.from_documents(
+            documents=chunks,
+            embedding=embeddings,
+        )
+    finally:
+        # Clean up temporary file
+        os.unlink(tmp_path)
 
 @app.post("/ask")
-async def ask(payload: AskIn):
-    user_question = payload.question
-    user_references = payload.references
+async def ask(
+    file: UploadFile = File(...),
+    question: str = Form(...)
+):
+    if not question:
+        raise HTTPException(status_code=400, detail="Question is required")
 
-    # 保持原有的固定sources
-    sources = [
-        {"id": 1, "snippet": "Sunlight helps plants make their own food through a process called photosynthesis."},
-        {"id": 2, "snippet": "Soil supports the plant and gives it important nutrients like nitrogen and potassium."},
-        {"id": 3, "snippet": "Without enough water, a plant may wilt or stop growing."},
-        {"id": 4, "snippet": "People often place their plants near windows or in gardens to give them what they need."},
-        {"id": 5, "snippet": "Air gives plants carbon dioxide, which they use along with sunlight to make food."}
-    ]
+    try:
+        # Process PDF and create vectorstore
+        vectorstore = process_pdf(file)
 
-    # 构建 sources 字符串
-    sources_text = "\n".join([f"[{s['id']}] {s['snippet']}" for s in sources])
+        # Retrieve relevant documents
+        docs = vectorstore.similarity_search(question, k=3)
+        context = "\n".join([doc.page_content for doc in docs])
 
-    # 构建用户引用字符串
-    user_references_text = "\n".join([f"- {ref}" for ref in user_references]) if user_references else "None"
+        # Build prompt
+        system_prompt = (
+            "You are a helpful assistant. Answer the question based on the provided context. "
+            "If the answer cannot be found in the context, say so. "
+            "Keep your answer concise and focused."
+        )
 
-    system_prompt = (
-        "You are a helpful assistant. Answer questions based on the context and available sources. "
-        "When citing information, ONLY use citation markers [1], [2], [3], [4], [5] from the numbered sources provided. "
-        "Do not cite the user references directly, but you can use them to better understand the user's focus. "
-        "Use at most 2 citations in your response. Here are some examples:\n\n"
-        "Example 1:\n"
-        "Q: What do plants need to grow?\n"
-        "A: Plants need several things to grow well. They need sunlight to make their own food through photosynthesis[1]. "
-        "They also require water, as without enough water, plants may wilt or stop growing[2]. "
-        "Additionally, they need air and soil to thrive.\n\n"
-        "Example 2:\n"
-        "Q: How do plants use sunlight?\n"
-        "A: Plants use sunlight to make their own food through a process called photosynthesis[1]. "
-        "This is how they convert light energy into chemical energy that they can use to grow."
-    )
+        user_prompt = f"Context:\n{context}\n\nQuestion:\n{question}"
 
-    user_prompt = (
-        f"Context:\n{BASE_CONTEXT}\n\n"
-        f"Available sources (use these for citations):\n{sources_text}\n\n"
-        f"User selected references (use these to understand focus):\n{user_references_text}\n\n"
-        f"Question:\n{user_question}"
-    )
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
 
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_prompt}
-    ]
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=messages,
+            temperature=0.4,
+        )
 
-    response = client.chat.completions.create(
-        model="gpt-3.5-turbo",
-        messages=messages,
-        temperature=0.4,
-    )
-
-    reply = response.choices[0].message.content
-
-    return {
-        "answer": reply,
-        "sources": sources
-    }
+        return {
+            "answer": response.choices[0].message.content,
+            "sources": [{"id": i+1, "snippet": doc.page_content} for i, doc in enumerate(docs)]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
