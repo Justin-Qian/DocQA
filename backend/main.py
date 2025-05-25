@@ -1,10 +1,12 @@
 import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from openai import OpenAI
 from typing import List
+import json
 
 load_dotenv()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -54,14 +56,19 @@ async def ask(payload: AskIn):
         {"role": "user", "content": user_prompt}
     ]
 
-    response = client.chat.completions.create(
-        model="gpt-3.5-turbo",
-        messages=messages,
-        temperature=0.4,
-    )
+    def gen():
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=messages,
+            temperature=0.4,
+            stream=True
+        )
+        last_token = ""
+        for chunk in response:
+            if chunk.choices[0].delta.content:
+                token = chunk.choices[0].delta.content
+                if token != last_token:
+                    yield f"data: {json.dumps({'answer': token})}\n\n"
+                    last_token = token
 
-    reply = response.choices[0].message.content
-
-    return {
-        "answer": reply
-    }
+    return StreamingResponse(gen(), media_type="text/event-stream")

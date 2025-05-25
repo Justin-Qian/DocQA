@@ -8,10 +8,6 @@ interface Message {
   isUser: boolean;
 }
 
-interface AskResponse {
-  answer: string;
-}
-
 const ORIGINAL_TEXT = [
   "Plants need four important things to grow well: sunlight, water, air, and soil. These things work together to help the plant stay healthy, strong, and full of life. If one of them is missing, the plant might grow slowly or even stop growing. That's why people who care for plants need to understand what each part does.",
   "First, sunlight is like food for plants. Through a special process called photosynthesis, plants use sunlight to make energy. They take in the light with their leaves and turn it into food that helps them grow. Without enough sunlight, plants may become pale, weak, or small. That's why you often see plants placed near windows or growing outdoors where they can soak up the light.",
@@ -86,26 +82,66 @@ export default function Home() {
           references
         }),
       });
-      const data: AskResponse = await res.json();
 
-      // 添加系统回复
-      const systemMessage: Message = {
-        content: data.answer,
-        timestamp: formatTime(),
-        isUser: false
-      };
-      setMessages(prev => [...prev, systemMessage]);
+      // 尚未插入 AI 回复消息，等待首个 token 到来再插入
+      let isFirstToken = true;
+
+      // 处理流式响应
+      const reader = res.body?.getReader();
+      const decoder = new TextDecoder();
+
+      while (reader) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        if (value) {
+          const chunk = decoder.decode(value);
+          // 按行分割，每行都是一个完整的 SSE 消息
+          const lines = chunk.split('\n');
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = JSON.parse(line.slice(6)); // remove "data: " (the first 6 characters)
+              if (data.answer) {
+                if (isFirstToken) {
+                  // 首个 token：创建系统消息并关闭 loading
+                  setMessages(prev => [
+                    ...prev,
+                    {
+                      content: data.answer,
+                      timestamp: formatTime(),
+                      isUser: false
+                    }
+                  ]);
+                  setLoading(false);
+                  isFirstToken = false;
+                } else {
+                  // 后续 token：追加内容到最后一条消息
+                  setMessages(prev => {
+                    const msgs = [...prev];
+                    const last = msgs[msgs.length - 1];
+                    msgs[msgs.length - 1] = {
+                      ...last,
+                      content: last.content + data.answer
+                    };
+                    return msgs;
+                  });
+                }
+              }
+            }
+          }
+        }
+      }
     } catch (error) {
       console.error('Error:', error);
       // 添加错误消息
       const errorMessage: Message = {
-        content: "抱歉，处理您的问题时出现错误。请稍后重试。",
+        content: "Sorry, something went wrong, please try again later",
         timestamp: formatTime(),
         isUser: false
       };
       setMessages(prev => [...prev, errorMessage]);
     } finally {
-      setLoading(false);
       setQuestion("");
       setReferences([]);
     }
