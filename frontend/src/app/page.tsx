@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import MessageItem from "@/components/MessageItem";
 
 interface Message {
@@ -13,12 +13,12 @@ interface AskResponse {
 }
 
 const ORIGINAL_TEXT = [
-  "Plants need four important things to grow well: sunlight, water, air, and soil. These things work together to help the plant stay healthy, strong, and full of life. If one of them is missing, the plant might grow slowly or even stop growing. That&apos;s why people who care for plants need to understand what each part does.",
-  "First, sunlight is like food for plants. Through a special process called photosynthesis, plants use sunlight to make energy. They take in the light with their leaves and turn it into food that helps them grow. Without enough sunlight, plants may become pale, weak, or small. That&apos;s why you often see plants placed near windows or growing outdoors where they can soak up the light.",
-  "Next, plants need water, which they absorb through their roots. The water travels up through the plant&apos;s stem and reaches all parts of the plant, especially the leaves. Water helps carry nutrients and keeps the plant firm and upright. On hot or dry days, you may notice plants wilting or drooping—that&apos;s a sign they need water. Without enough, the plant can&apos;t grow properly and might even dry out.",
-  "Air is just as important. Plants take in a gas from the air called carbon dioxide, which they also use during photosynthesis to make food. Without carbon dioxide, the plant wouldn&apos;t be able to complete this process. That&apos;s why most plants grow best in open spaces with fresh air, instead of in closed, stuffy places.",
+  "Plants need four important things to grow well: sunlight, water, air, and soil. These things work together to help the plant stay healthy, strong, and full of life. If one of them is missing, the plant might grow slowly or even stop growing. That's why people who care for plants need to understand what each part does.",
+  "First, sunlight is like food for plants. Through a special process called photosynthesis, plants use sunlight to make energy. They take in the light with their leaves and turn it into food that helps them grow. Without enough sunlight, plants may become pale, weak, or small. That's why you often see plants placed near windows or growing outdoors where they can soak up the light.",
+  "Next, plants need water, which they absorb through their roots. The water travels up through the plant's stem and reaches all parts of the plant, especially the leaves. Water helps carry nutrients and keeps the plant firm and upright. On hot or dry days, you may notice plants wilting or drooping—that's a sign they need water. Without enough, the plant can't grow properly and might even dry out.",
+  "Air is just as important. Plants take in a gas from the air called carbon dioxide, which they also use during photosynthesis to make food. Without carbon dioxide, the plant wouldn't be able to complete this process. That's why most plants grow best in open spaces with fresh air, instead of in closed, stuffy places.",
   "Lastly, soil provides both support and nutrition. It holds the plant in place and is full of important minerals like nitrogen, potassium, and phosphorus. These nutrients help the plant grow taller, produce more leaves, and stay a healthy green color. Rich, healthy soil is one of the best things you can give a plant.",
-  "When plants get enough sunlight, water, air, and nutrients from the soil, they can grow strong and healthy. But if even one of these is missing—too little light, dry soil, not enough air, or a lack of water—the plant may struggle. That&apos;s why people place their plants where they can get everything they need, whether it&apos;s a bright window, a well-watered garden, or a spot with fresh air and good soil."
+  "When plants get enough sunlight, water, air, and nutrients from the soil, they can grow strong and healthy. But if even one of these is missing—too little light, dry soil, not enough air, or a lack of water—the plant may struggle. That's why people place their plants where they can get everything they need, whether it's a bright window, a well-watered garden, or a spot with fresh air and good soil."
 ];
 
 export default function Home() {
@@ -26,6 +26,13 @@ export default function Home() {
   const [question, setQuestion] = useState("");
   const [references, setReferences] = useState<string[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
+
+  useEffect(() => {
+    const messagesContainer = document.querySelector('.messages-container');
+    if (messagesContainer) {
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+  }, [messages]);
 
   const handleReset = () => {
     setQuestion("");
@@ -129,7 +136,9 @@ export default function Home() {
 
           {/* 右侧：聊天区域 */}
           <div className="bg-white rounded-lg shadow-md flex flex-col overflow-hidden">
-            <div className="p-6 overflow-y-auto flex-1">
+
+            {/* 消息列表 */}
+            <div className="p-6 overflow-y-auto flex-1 messages-container">
               {messages.map((message, index) => (
                 <MessageItem
                   key={index}
@@ -138,8 +147,14 @@ export default function Home() {
                   isUser={message.isUser}
                 />
               ))}
+              {loading && (
+                <div className="flex justify-start mb-4">
+                  <div className="w-4 h-4 bg-gray-800 rounded-full animate-pulse" />
+                </div>
+              )}
             </div>
 
+            {/* 输入区域 */}
             <div className="p-6 border-t bg-gray-50 flex-shrink-0">
               {/* 引用标签 */}
               <div className="flex flex-wrap gap-2 mb-4">
@@ -167,7 +182,7 @@ export default function Home() {
                 ))}
               </div>
 
-              {/* 输入区域 */}
+              {/* 输入框 */}
               <div className="flex gap-3">
                 <div className="relative flex-1 group">
                   <input
@@ -181,6 +196,12 @@ export default function Home() {
                       }
                     }}
                     onDragOver={(e) => e.preventDefault()}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleAsk();
+                      }
+                    }}
                     placeholder="Type your question here..."
                     className="w-full border p-2 rounded"
                   />
@@ -197,7 +218,7 @@ export default function Home() {
                 <button
                   onClick={handleAsk}
                   disabled={loading}
-                  className="bg-blue-600 text-white px-6 py-2 rounded disabled:bg-gray-400"
+                  className="bg-slate-600 text-white px-6 py-2 rounded disabled:bg-slate-400"
                 >
                   {loading ? "Loading..." : "Ask"}
                 </button>
