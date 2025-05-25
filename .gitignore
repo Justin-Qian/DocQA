@@ -136,6 +136,7 @@ dist
 .pnp.*
 
 # Python
+.venv/
 venv/
 _venv/
 ._venv/
