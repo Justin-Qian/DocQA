@@ -1,45 +1,34 @@
 "use client";
 import { useState } from "react";
-import AnswerRichText from "@/components/AnswerRichText";
+import MessageItem from "@/components/MessageItem";
 
+interface Message {
+  content: string;
+  timestamp: string;
+  isUser: boolean;
+}
 
 interface AskResponse {
   answer: string;
-  sources: Array<{ id: number; page: number; snippet: string }>;
 }
 
 const ORIGINAL_TEXT = [
-  // 第一段
-  "Plants need sunlight, water, air, and soil to grow well.",
-  "Sunlight helps plants make their own food through a process called photosynthesis.",
-  "This is how they turn light into energy.",
-
-  // 第二段
-  "Water is taken in by the roots and moves up through the plant to the leaves.",
-  "Without enough water, a plant may wilt or stop growing.",
-
-  // 第三段
-  "Air gives plants carbon dioxide, which they use along with sunlight to make food.",
-  "This is why plants are usually found in open spaces.",
-
-  // 第四段
-  "Soil supports the plant and gives it important nutrients like nitrogen and potassium.",
-  "These nutrients help plants grow taller, greener, and stronger.",
-
-  // 第五段
-  "If a plant gets too little sunlight, or is in very dry soil, it may grow slowly or not at all.",
-  "People often place their plants near windows or in gardens to give them what they need."
+  "Plants need four important things to grow well: sunlight, water, air, and soil. These things work together to help the plant stay healthy, strong, and full of life. If one of them is missing, the plant might grow slowly or even stop growing. That&apos;s why people who care for plants need to understand what each part does.",
+  "First, sunlight is like food for plants. Through a special process called photosynthesis, plants use sunlight to make energy. They take in the light with their leaves and turn it into food that helps them grow. Without enough sunlight, plants may become pale, weak, or small. That&apos;s why you often see plants placed near windows or growing outdoors where they can soak up the light.",
+  "Next, plants need water, which they absorb through their roots. The water travels up through the plant&apos;s stem and reaches all parts of the plant, especially the leaves. Water helps carry nutrients and keeps the plant firm and upright. On hot or dry days, you may notice plants wilting or drooping—that&apos;s a sign they need water. Without enough, the plant can&apos;t grow properly and might even dry out.",
+  "Air is just as important. Plants take in a gas from the air called carbon dioxide, which they also use during photosynthesis to make food. Without carbon dioxide, the plant wouldn&apos;t be able to complete this process. That&apos;s why most plants grow best in open spaces with fresh air, instead of in closed, stuffy places.",
+  "Lastly, soil provides both support and nutrition. It holds the plant in place and is full of important minerals like nitrogen, potassium, and phosphorus. These nutrients help the plant grow taller, produce more leaves, and stay a healthy green color. Rich, healthy soil is one of the best things you can give a plant.",
+  "When plants get enough sunlight, water, air, and nutrients from the soil, they can grow strong and healthy. But if even one of these is missing—too little light, dry soil, not enough air, or a lack of water—the plant may struggle. That&apos;s why people place their plants where they can get everything they need, whether it&apos;s a bright window, a well-watered garden, or a spot with fresh air and good soil."
 ];
 
 export default function Home() {
-  const [question, setQuestion] = useState("");
-  const [data, setData] = useState<AskResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const [question, setQuestion] = useState("");
   const [references, setReferences] = useState<string[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
 
   const handleReset = () => {
     setQuestion("");
-    setData(null);
     setReferences([]);
   };
 
@@ -60,121 +49,163 @@ export default function Home() {
     setReferences(prev => prev.filter((_, index) => index !== indexToDelete));
   };
 
+  const formatTime = () => {
+    const now = new Date();
+    return now.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true
+    });
+  };
+
   async function handleAsk() {
     if (!question) return;
+
+    // 添加用户消息
+    const userMessage: Message = {
+      content: question,
+      timestamp: formatTime(),
+      isUser: true
+    };
+    setMessages(prev => [...prev, userMessage]);
     setLoading(true);
-    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/ask`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        question,
-        references
-      }),
-    });
-    const json = await res.json();
-    setData(json);
-    setLoading(false);
+
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/ask`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          question,
+          references
+        }),
+      });
+      const data: AskResponse = await res.json();
+
+      // 添加系统回复
+      const systemMessage: Message = {
+        content: data.answer,
+        timestamp: formatTime(),
+        isUser: false
+      };
+      setMessages(prev => [...prev, systemMessage]);
+    } catch (error) {
+      console.error('Error:', error);
+      // 添加错误消息
+      const errorMessage: Message = {
+        content: "抱歉，处理您的问题时出现错误。请稍后重试。",
+        timestamp: formatTime(),
+        isUser: false
+      };
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setLoading(false);
+      setQuestion("");
+      setReferences([]);
+    }
   }
 
   return (
-    <main className="p-6 max-w-4xl mx-auto space-y-6">
-      <div className="mb-4">
-        <h1 className="inline text-2xl font-bold">DocQA Demo 🌿</h1>
-        <span className="ml-3 text-sm text-gray-500">by Yujia Qian</span>
-      </div>
-      {/* 上部分：原文内容 */}
-      <div
-        className="border p-4 rounded select-text mb-16"
-        onMouseDown={handleMouseDown}
-        onDragStart={handleDragStart}
-      >
-        {ORIGINAL_TEXT.map((text, index) => (
-          <p key={index}>{text}</p>
-        ))}
-      </div>
+    <main className="h-screen bg-gray-50 overflow-hidden">
+      <div className="h-full px-16 py-6 flex flex-col max-w-[1600px] mx-auto">
+        <h1 className="text-2xl font-bold mb-4 flex-shrink-0">
+          DocQA Demo 🌿
+          <span className="ml-3 text-sm text-gray-500">by Yujia Qian</span>
+        </h1>
 
-      {/* 中间：输入区域 */}
-      <div className="flex flex-wrap gap-2 mb-2">
-        {references.map((ref, index) => (
-          <div key={index} className="relative group">
-            <div className="relative">
-              <button className="bg-gray-200 px-2 py-1 rounded text-sm inline-flex items-center">
-                <span>ref {index + 1}</span>
-                <span
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleDeleteRef(index);
-                  }}
-                  className="w-0 group-hover:w-4 overflow-hidden transition-all duration-200
-                           bg-gray-600 text-white rounded ml-1 h-4 flex items-center justify-center text-xs
-                           opacity-0 group-hover:opacity-100 hover:bg-gray-700 cursor-pointer"
-                >
-                  ×
-                </span>
-              </button>
-            </div>
-            <div className="absolute left-0 bottom-full mb-2 p-2 bg-gray-100 text-black text-sm rounded shadow-lg
-                          invisible group-hover:visible w-48 z-10 whitespace-pre-wrap">
-              {ref}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 flex-1 overflow-hidden">
+          {/* 左侧：阅读区域 */}
+          <div className="bg-white rounded-lg shadow-md flex flex-col overflow-hidden">
+            <h2 className="text-xl font-semibold p-6 border-b flex-shrink-0">Document</h2>
+            <div
+              className="prose max-w-none select-text p-6 overflow-y-auto"
+              onMouseDown={handleMouseDown}
+              onDragStart={handleDragStart}
+            >
+              {ORIGINAL_TEXT.map((text, index) => (
+                <p key={index} className="indent-8 mb-4">{text}</p>
+              ))}
             </div>
           </div>
-        ))}
-      </div>
-      <div className="flex gap-3">
-        <div className="relative flex-1 group">
-          <input
-            value={question}
-            onChange={(e) => setQuestion(e.target.value)}
-            onDrop={(e) => {
-              e.preventDefault();
-              const text = e.dataTransfer.getData("text/plain");
-              if (text) {
-                setReferences(prev => [...prev, text]);
-              }
-            }}
-            onDragOver={(e) => e.preventDefault()}
-            placeholder="please ask me anything"
-            className="w-full border p-2 rounded"
-          />
-          <span
-            onClick={handleReset}
-            className="absolute right-2 top-1/2 -translate-y-1/2 w-0 group-hover:w-6 overflow-hidden
-                     transition-all duration-200 bg-gray-600 text-white rounded h-6
-                     flex items-center justify-center text-sm opacity-0 group-hover:opacity-100
-                     hover:bg-gray-700 cursor-pointer"
-          >
-            ×
-          </span>
-        </div>
-        <button
-          onClick={handleAsk}
-          disabled={loading}
-          className="bg-blue-600 text-white px-6 py-2 rounded disabled:bg-gray-400"
-        >
-          {loading ? "Loading..." : "Ask"}
-        </button>
-      </div>
 
-      {/* 下部分：回答区域 */}
-      {data && (
-        <div className="border p-4 rounded">
-          <AnswerRichText
-            answer={data.answer}
-            sources={data.sources}
-            onHighlight={(snippet) => {
-              // 当鼠标悬停在引用上时，高亮对应的原文段落
-              const paragraphs = document.querySelectorAll('p');
-              paragraphs.forEach(p => {
-                if (snippet && p.textContent?.includes(snippet)) {
-                  p.classList.add('bg-yellow-100', 'font-bold', 'italic');
-                } else {
-                  p.classList.remove('bg-yellow-100', 'font-bold', 'italic');
-                }
-              });
-            }}
-          />
+          {/* 右侧：聊天区域 */}
+          <div className="bg-white rounded-lg shadow-md flex flex-col overflow-hidden">
+            <div className="p-6 overflow-y-auto flex-1">
+              {messages.map((message, index) => (
+                <MessageItem
+                  key={index}
+                  content={message.content}
+                  timestamp={message.timestamp}
+                  isUser={message.isUser}
+                />
+              ))}
+            </div>
+
+            <div className="p-6 border-t bg-gray-50 flex-shrink-0">
+              {/* 引用标签 */}
+              <div className="flex flex-wrap gap-2 mb-4">
+                {references.map((ref, index) => (
+                  <div key={index} className="relative group">
+                    <button className="bg-gray-200 px-2 py-1 rounded text-sm inline-flex items-center">
+                      <span>ref {index + 1}</span>
+                      <span
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteRef(index);
+                        }}
+                        className="w-0 group-hover:w-4 overflow-hidden transition-all duration-200
+                                 bg-gray-600 text-white rounded ml-1 h-4 flex items-center justify-center text-xs
+                                 opacity-0 group-hover:opacity-100 hover:bg-gray-700 cursor-pointer"
+                      >
+                        ×
+                      </span>
+                    </button>
+                    <div className="absolute left-0 bottom-full mb-2 p-2 bg-gray-100 text-black text-sm rounded shadow-lg
+                                  invisible group-hover:visible w-48 z-10 whitespace-pre-wrap">
+                      {ref}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* 输入区域 */}
+              <div className="flex gap-3">
+                <div className="relative flex-1 group">
+                  <input
+                    value={question}
+                    onChange={(e) => setQuestion(e.target.value)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      const text = e.dataTransfer.getData("text/plain");
+                      if (text) {
+                        setReferences(prev => [...prev, text]);
+                      }
+                    }}
+                    onDragOver={(e) => e.preventDefault()}
+                    placeholder="Type your question here..."
+                    className="w-full border p-2 rounded"
+                  />
+                  <span
+                    onClick={handleReset}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 w-0 group-hover:w-6 overflow-hidden
+                             transition-all duration-200 bg-gray-600 text-white rounded h-6
+                             flex items-center justify-center text-sm opacity-0 group-hover:opacity-100
+                             hover:bg-gray-700 cursor-pointer"
+                  >
+                    ×
+                  </span>
+                </div>
+                <button
+                  onClick={handleAsk}
+                  disabled={loading}
+                  className="bg-blue-600 text-white px-6 py-2 rounded disabled:bg-gray-400"
+                >
+                  {loading ? "Loading..." : "Ask"}
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
-      )}
+      </div>
     </main>
   );
 }
