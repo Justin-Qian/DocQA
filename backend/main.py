@@ -20,33 +20,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 接收前端发送的全文 original_text
 class AskIn(BaseModel):
     question: str
     references: List[str]
-
-# 你展示的原始内容作为上下文
-BASE_CONTEXT = """
-Plants need sunlight, water, air, and soil to grow well. Sunlight helps plants make their own food through a process called photosynthesis. This is how they turn light into energy.
-
-Water is taken in by the roots and moves up through the plant to the leaves. Without enough water, a plant may wilt or stop growing.
-
-Air gives plants carbon dioxide, which they use along with sunlight to make food. This is why plants are usually found in open spaces.
-
-Soil supports the plant and gives it important nutrients like nitrogen and potassium. These nutrients help plants grow taller, greener, and stronger.
-
-If a plant gets too little sunlight, or is in very dry soil, it may grow slowly or not at all. People often place their plants near windows or in gardens to give them what they need.
-"""
+    original_text: List[str]
 
 @app.post("/ask")
 async def ask(payload: AskIn):
     user_question = payload.question
     user_references = payload.references
+    original_text = payload.original_text
 
     # 构建用户引用字符串
     user_references_text = "\n".join([f"- {ref}" for ref in user_references]) if user_references else "None"
+    combined_text = "\n".join(original_text)
 
     user_prompt = (
-        f"Context:\n{BASE_CONTEXT}\n\n"
+        f"Context (the full passage provided by the user):\n{combined_text}\n\n"
         f"User selected references (use these to understand focus):\n{user_references_text}\n\n"
         f"Question:\n{user_question}"
     )

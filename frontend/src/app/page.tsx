@@ -86,7 +86,8 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           question,
-          references
+          references,
+          original_text: ORIGINAL_TEXT
         }),
         signal: controller.signal
       });
@@ -259,6 +260,11 @@ export default function Home() {
                     }}
                     onDragOver={(e) => e.preventDefault()}
                     onKeyDown={(e) => {
+                      if (loading) {
+                        e.preventDefault();
+                        handleAbort();
+                        return;
+                      }
                       if (e.key === 'Enter' && !e.shiftKey) {
                         e.preventDefault();
                         handleAsk();
