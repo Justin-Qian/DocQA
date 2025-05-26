@@ -18,7 +18,9 @@ const ORIGINAL_TEXT = [
 ];
 
 export default function Home() {
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(false);          // 请求 / 流是否仍在进行
+  const [isWaitingResponse, setIsWaitingResponse] = useState(false); // 等待首包
+  const [abortCtrl, setAbortCtrl] = useState<AbortController | null>(null); // 终止用
   const [question, setQuestion] = useState("");
   const [references, setReferences] = useState<string[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -72,6 +74,11 @@ export default function Home() {
     };
     setMessages(prev => [...prev, userMessage]);
     setLoading(true);
+    setIsWaitingResponse(true);
+
+    // 创建 AbortController 用于后续终止
+    const controller = new AbortController();
+    setAbortCtrl(controller);
 
     try {
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/ask`, {
@@ -81,6 +88,7 @@ export default function Home() {
           question,
           references
         }),
+        signal: controller.signal
       });
 
       // 尚未插入 AI 回复消息，等待首个 token 到来再插入
@@ -113,7 +121,7 @@ export default function Home() {
                       isUser: false
                     }
                   ]);
-                  setLoading(false);
+                  setIsWaitingResponse(false); // 已收到首包，隐藏菊花
                   isFirstToken = false;
                 } else {
                   // 后续 token：追加内容到最后一条消息
@@ -132,20 +140,38 @@ export default function Home() {
           }
         }
       }
-    } catch (error) {
-      console.error('Error:', error);
-      // 添加错误消息
-      const errorMessage: Message = {
-        content: "Sorry, something went wrong, please try again later",
-        timestamp: formatTime(),
-        isUser: false
-      };
-      setMessages(prev => [...prev, errorMessage]);
+
+    } catch (err: unknown) {
+      const error = err as { name?: string } | undefined;
+      // 如果是用户主动终止导致的 AbortError，静默处理
+      if (error?.name === 'AbortError') {
+        // 已主动终止，无需提示
+      } else {
+        console.error('Error:', error);
+        // 添加错误消息
+        const errorMessage: Message = {
+          content: "抱歉，处理您的问题时出现错误。请稍后重试。",
+          timestamp: formatTime(),
+          isUser: false
+        };
+        setMessages(prev => [...prev, errorMessage]);
+      }
     } finally {
+      setLoading(false);
       setQuestion("");
       setReferences([]);
+      setIsWaitingResponse(false);
+      setAbortCtrl(null);
     }
   }
+
+  // 终止当前请求
+  const handleAbort = () => {
+    if (abortCtrl) {
+      abortCtrl.abort();
+      setAbortCtrl(null);
+    }
+  };
 
   return (
     <main className="h-screen bg-gray-50 overflow-hidden">
@@ -158,7 +184,7 @@ export default function Home() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 flex-1 overflow-hidden">
           {/* 左侧：阅读区域 */}
           <div className="bg-white rounded-lg shadow-md flex flex-col overflow-hidden">
-            <h2 className="text-xl font-semibold p-6 border-b flex-shrink-0">Document</h2>
+            <h2 className="text-xl font-semibold p-6 border-b-2 border-gray-300 flex-shrink-0">Document</h2>
             <div
               className="prose max-w-none select-text p-6 overflow-y-auto"
               onMouseDown={handleMouseDown}
@@ -183,7 +209,7 @@ export default function Home() {
                   isUser={message.isUser}
                 />
               ))}
-              {loading && (
+              {isWaitingResponse && (
                 <div className="flex justify-start mb-4">
                   <div className="w-4 h-4 bg-gray-800 rounded-full animate-pulse" />
                 </div>
@@ -191,7 +217,7 @@ export default function Home() {
             </div>
 
             {/* 输入区域 */}
-            <div className="p-6 border-t bg-gray-50 flex-shrink-0">
+            <div className="p-6 border-t-2 border-gray-300 flex-shrink-0">
               {/* 引用标签 */}
               <div className="flex flex-wrap gap-2 mb-4">
                 {references.map((ref, index) => (
@@ -252,11 +278,10 @@ export default function Home() {
                   </span>
                 </div>
                 <button
-                  onClick={handleAsk}
-                  disabled={loading}
-                  className="bg-slate-600 text-white px-6 py-2 rounded disabled:bg-slate-400"
+                  onClick={loading ? handleAbort : handleAsk}
+                  className={`px-6 py-2 rounded text-white ${loading ? 'bg-red-400 hover:bg-red-500' : 'bg-slate-600 hover:bg-slate-700'}`}
                 >
-                  {loading ? "Loading..." : "Ask"}
+                  {loading ? "Stop" : "Ask"}
                 </button>
               </div>
             </div>
