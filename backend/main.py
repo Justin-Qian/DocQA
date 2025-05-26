@@ -8,6 +8,11 @@ from openai import OpenAI
 from typing import List
 import json
 
+# === LangChain 相关 ===
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_openai import OpenAIEmbeddings
+from langchain_community.vectorstores import FAISS
+
 load_dotenv()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
@@ -34,24 +39,36 @@ ORIGINAL_TEXT = [
   "When plants get enough sunlight, water, air, and nutrients from the soil, they can grow strong and healthy. But if even one of these is missing—too little light, dry soil, not enough air, or a lack of water—the plant may struggle. That's why people place their plants where they can get everything they need, whether it's a bright window, a well-watered garden, or a spot with fresh air and good soil."
 ]
 
+# 仅在启动时构建一次向量库
+embeddings = OpenAIEmbeddings()
+splitter = RecursiveCharacterTextSplitter(chunk_size=256, chunk_overlap=32)
+docs = [
+    doc for paragraph in ORIGINAL_TEXT for doc in splitter.create_documents([paragraph])
+]
+vector_store = FAISS.from_documents(docs, embeddings)
+
 @app.post("/ask")
 async def ask(payload: AskIn):
     user_question = payload.question
     user_references = payload.references
-    original_text = ORIGINAL_TEXT
 
-    # 构建用户引用字符串
-    user_references_text = "\n".join([f"- {ref}" for ref in user_references]) if user_references else "None"
-    combined_text = "\n".join(original_text)
+    # 1) 向量检索
+    top_docs = vector_store.similarity_search(user_question, k=3)
+    retrieved_context = "\n".join([d.page_content for d in top_docs]) or "None"
+
+    # 2) 构建 prompt
+    user_references_text = (
+        "\n".join([f"- {ref}" for ref in user_references]) if user_references else "None"
+    )
 
     user_prompt = (
-        f"Context (the full passage provided by the user):\n{combined_text}\n\n"
-        f"User selected references (use these to understand focus):\n{user_references_text}\n\n"
+        "You are a helpful assistant. Answer the question based on the context.\n\n"
+        f"Context from document (may be multiple chunks):\n{retrieved_context}\n\n"
+        f"User selected references to emphasise (optional):\n{user_references_text}\n\n"
         f"Question:\n{user_question}"
     )
 
     messages = [
-        {"role": "system", "content": "You are a helpful assistant. Answer questions based on the context and user's focus."},
         {"role": "user", "content": user_prompt}
     ]
 
