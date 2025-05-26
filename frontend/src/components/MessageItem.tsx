@@ -1,10 +1,18 @@
+import React from "react";
+import CitationPopover from "./CitationPopover";
+
 interface MessageItemProps {
   content: string;
   timestamp: string;
   isUser: boolean;
+  retrieved?: string[];
+  onHighlight: (snippet: string | null) => void;
 }
 
-export default function MessageItem({ content, timestamp, isUser }: MessageItemProps) {
+export default function MessageItem({ content, timestamp, isUser, retrieved = [], onHighlight }: MessageItemProps) {
+
+  const parts = content.split(/(\[\d+\])/g);
+
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-4`}>
       <div className={`max-w-[80%] ${isUser ? 'order-2' : 'order-1'}`}>
@@ -19,7 +27,32 @@ export default function MessageItem({ content, timestamp, isUser }: MessageItemP
             ? 'bg-gray-600 text-white'
             : 'bg-gray-100 text-gray-800'
         }`}>
-          <div className="whitespace-pre-wrap">{content}</div>
+          {retrieved.length > 0 ? (
+            // 引用内容
+            <div className="leading-7">
+            {parts.map((part, idx) => {
+              const m = part.match(/^\[(\d+)\]$/);
+              if (!m) return part;
+
+              const num = Number(m[1]);
+              const snippet = retrieved[num - 1];
+              if (!snippet) return part;
+
+              return (
+                <CitationPopover
+                  key={idx}
+                  num={num}
+                  snippet={snippet}
+                  onMouseEnter={() => onHighlight(snippet)}
+                  onMouseLeave={() => onHighlight(null)}
+                />
+              );
+            })}
+          </div>
+          ) : (
+            // 普通文本
+            <div className="whitespace-pre-wrap">{content}</div>
+          )}
         </div>
       </div>
     </div>

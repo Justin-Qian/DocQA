@@ -6,6 +6,7 @@ interface Message {
   content: string;
   timestamp: string;
   isUser: boolean;
+  retrieved?: string[]; // 检索到的片段，可选
 }
 
 const ORIGINAL_TEXT = [
@@ -24,6 +25,7 @@ export default function Home() {
   const [question, setQuestion] = useState("");
   const [references, setReferences] = useState<string[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [highlightedSnippet, setHighlightedSnippet] = useState<string | null>(null);// 高亮文档段落
 
   useEffect(() => {
     const messagesContainer = document.querySelector('.messages-container');
@@ -31,6 +33,11 @@ export default function Home() {
       messagesContainer.scrollTop = messagesContainer.scrollHeight;
     }
   }, [messages]);
+
+  // 高亮文档段落
+  const handleHighlight = (snippet: string | null) => {
+    setHighlightedSnippet(snippet);
+  };
 
   const handleReset = () => {
     setQuestion("");
@@ -66,15 +73,21 @@ export default function Home() {
   async function handleAsk() {
     if (!question) return;
 
+    const userQuestion = question;
+    const userReferences = references;
+
     // 添加用户消息
     const userMessage: Message = {
-      content: question,
+      content: userQuestion,
       timestamp: formatTime(),
       isUser: true
     };
     setMessages(prev => [...prev, userMessage]);
     setLoading(true);
     setIsWaitingResponse(true);
+    // 清空输入框和引用标签
+    setQuestion("");
+    setReferences([]);
 
     // 创建 AbortController 用于后续终止
     const controller = new AbortController();
@@ -85,14 +98,15 @@ export default function Home() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          question,
-          references
+          question: userQuestion,
+          references: userReferences
         }),
         signal: controller.signal
       });
 
       // 尚未插入 AI 回复消息，等待首个 token 到来再插入
       let isFirstToken = true;
+      let currentContextDocs: string[] = [];
 
       // 处理流式响应
       const reader = res.body?.getReader();
@@ -110,7 +124,15 @@ export default function Home() {
           for (const line of lines) {
             if (line.startsWith('data: ')) {
               const data = JSON.parse(line.slice(6)); // remove "data: " (the first 6 characters)
-              if (data.answer) {
+
+              // 处理检索片段
+              if (data.type === 'context') {
+                if (Array.isArray(data.top_docs)) {
+                  currentContextDocs = data.top_docs;
+                }
+              }
+              // 处理 token
+              else if (data.type === 'token' && data.answer) {
                 if (isFirstToken) {
                   // 首个 token：创建系统消息并关闭 loading
                   setMessages(prev => [
@@ -118,10 +140,11 @@ export default function Home() {
                     {
                       content: data.answer,
                       timestamp: formatTime(),
-                      isUser: false
+                      isUser: false,
+                      retrieved: currentContextDocs
                     }
                   ]);
-                  setIsWaitingResponse(false); // 已收到首包，隐藏菊花
+                  setIsWaitingResponse(false); // 已收到首包，隐藏动画
                   isFirstToken = false;
                 } else {
                   // 后续 token：追加内容到最后一条消息
@@ -158,8 +181,6 @@ export default function Home() {
       }
     } finally {
       setLoading(false);
-      setQuestion("");
-      setReferences([]);
       setIsWaitingResponse(false);
       setAbortCtrl(null);
     }
@@ -171,6 +192,8 @@ export default function Home() {
       abortCtrl.abort();
       setAbortCtrl(null);
     }
+    setQuestion("");
+    setReferences([]);
   };
 
   return (
@@ -190,9 +213,17 @@ export default function Home() {
               onMouseDown={handleMouseDown}
               onDragStart={handleDragStart}
             >
-              {ORIGINAL_TEXT.map((text, index) => (
-                <p key={index} className="indent-8 mb-4">{text}</p>
-              ))}
+              {ORIGINAL_TEXT.map((text, index) => {
+                let className = "indent-8 mb-4";
+                if (highlightedSnippet && text.includes(highlightedSnippet)) {
+                  className += " bg-yellow-200 font-bold italic";
+                }
+                return (
+                  <p key={index} className={className}>
+                    {text}
+                  </p>
+                );
+              })}
             </div>
           </div>
 
@@ -207,6 +238,8 @@ export default function Home() {
                   content={message.content}
                   timestamp={message.timestamp}
                   isUser={message.isUser}
+                  retrieved={message.retrieved}
+                  onHighlight={handleHighlight}
                 />
               ))}
               {isWaitingResponse && (
