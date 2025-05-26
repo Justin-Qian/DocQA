@@ -86,8 +86,7 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           question,
-          references,
-          original_text: ORIGINAL_TEXT
+          references
         }),
         signal: controller.signal
       });
