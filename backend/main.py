@@ -15,6 +15,7 @@ from langchain_community.vectorstores import FAISS
 
 # === Clerk认证相关 ===
 from auth import require_user
+from clerk_auth import get_state
 
 load_dotenv()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -54,13 +55,13 @@ vector_store = FAISS.from_documents(docs, embeddings)
 @app.post("/ask")
 async def ask(
     request: Request,
-    user: dict = Depends(require_user)  # 添加用户认证依赖
+    state = Depends(get_state)
 ):
     try:
         # 获取用户信息
-        user_id = user.get("sub", "unknown")
-        user_email = user.get("email", "unknown")
-        session_id = user.get("sid", "unknown")
+        user_id = state.payload.get("sub", "unknown")
+        user_email = state.payload.get("email", "unknown")
+        session_id = state.payload.get("sid", "unknown")
 
         print(f"✅ Authenticated request from user: {user_id} (email: {user_email}, session: {session_id})")
 

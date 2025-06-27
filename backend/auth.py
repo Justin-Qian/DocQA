@@ -8,7 +8,7 @@ import os, requests, time
 load_dotenv()
 CLERK_FRONTEND_API = os.getenv("CLERK_FRONTEND_API")
 CLERK_JWKS_URL = f"{CLERK_FRONTEND_API}/.well-known/jwks.json"
-AUTHORIZED_PARTIES = {"http://localhost:3000"}          # 允许的 azp，可用逗号分隔写到 .env 并 split
+AUTHORIZED_PARTIES = {"http://localhost:3000"}
 
 
 def _get_public_key(token: str):
