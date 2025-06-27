@@ -6,3 +6,5 @@ langchain~=0.2
 langchain-community~=0.2
 langchain-openai~=0.1
 faiss-cpu
+"python-jose[cryptography]"
+requests

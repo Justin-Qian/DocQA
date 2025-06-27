@@ -1,5 +1,5 @@
 import os
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -13,6 +13,9 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_openai import OpenAIEmbeddings
 from langchain_community.vectorstores import FAISS
 
+# === Clerk认证相关 ===
+from auth import require_user
+
 load_dotenv()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
@@ -23,6 +26,7 @@ app.add_middleware(
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_credentials=True,
 )
 
 # 接收前端发送的全文 original_text
@@ -48,74 +52,90 @@ docs = [
 vector_store = FAISS.from_documents(docs, embeddings)
 
 @app.post("/ask")
-async def ask(payload: AskIn):
-    user_question = payload.question
-    user_references = payload.references
+async def ask(
+    request: Request,
+    user: dict = Depends(require_user)  # 添加用户认证依赖
+):
+    try:
+        # 获取用户信息
+        user_id = user.get("sub", "unknown")
+        user_email = user.get("email", "unknown")
+        session_id = user.get("sid", "unknown")
 
-    # 1) 向量检索
-    top_docs = vector_store.similarity_search(user_question, k=3)
-    retrieved_context = "\n".join([
-        f"[{idx+1}] {doc.page_content}" for idx, doc in enumerate(top_docs)
-    ]) or "None"
+        print(f"✅ Authenticated request from user: {user_id} (email: {user_email}, session: {session_id})")
 
-    # 2) 构建 prompt
-    user_references_text = (
-        "\n".join([f"- {ref}" for ref in user_references]) if user_references else "None"
-    )
+        # 解析请求数据
+        request_data = await request.json()
+        user_question = request_data.get("question", "")
+        user_references = request_data.get("references", [])
 
-    user_prompt = (
-        "You are a helpful assistant. Answer the question based on the context. When you use information from the context, cite the corresponding number in square brackets, e.g., [1][2]. Do not invent citations.\n\n"
-        f"Context from document (numbered for citation):\n{retrieved_context}\n\n"
-        f"User selected references to emphasise (optional):\n{user_references_text}\n\n"
-        f"Question:\n{user_question}"
-    )
+        # 1) 向量检索
+        top_docs = vector_store.similarity_search(user_question, k=3)
+        retrieved_context = "\n".join([
+            f"[{idx+1}] {doc.page_content}" for idx, doc in enumerate(top_docs)
+        ]) or "None"
 
-    # few-shot 示例（教模型正确引用编号）
-    few_shot_messages = [
-        {
-            "role": "user",
-            "content": (
-                "Context (numbered for citation):\n"
-                "[1] Photosynthesis is the process by which plants make food using sunlight.\n"
-                "[2] Water is transported from roots to leaves through the xylem.\n"
-                "[3] When plants get enough sunlight, water, air, and nutrients from the soil, they can grow strong and healthy.\n"
-                "Question:\nExplain how plants obtain the resources needed for photosynthesis."
-            )
-        },
-        {
-            "role": "assistant",
-            "content": (
-                "Plants obtain the key ingredients for photosynthesis from different sources: they absorb sunlight with their leaves to capture energy.[1] Water is drawn up from the roots through the xylem to reach the leaves where photosynthesis occurs.[2]"
-            )
-        }
-    ]
-
-    messages = few_shot_messages + [
-        {"role": "user", "content": user_prompt}
-    ]
-
-    def gen():
-        # 先把检索到的文档片段发送给前端，type=context
-        context_payload = {
-            "type": "context",
-            "top_docs": [d.page_content for d in top_docs]
-        }
-        yield f"data: {json.dumps(context_payload)}\n\n"
-
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=messages,
-            temperature=0.4,
-            stream=True
+        # 2) 构建 prompt
+        user_references_text = (
+            "\n".join([f"- {ref}" for ref in user_references]) if user_references else "None"
         )
 
-        # 处理 token
-        last_token = ""
-        for chunk in response:
-            if chunk.choices[0].delta.content:
-                token = chunk.choices[0].delta.content
-                if token != last_token:
-                    yield f"data: {json.dumps({'type':'token','answer': token})}\n\n"
-                    last_token = token
+        user_prompt = (
+            "You are a helpful assistant. Answer the question based on the context. When you use information from the context, cite the corresponding number in square brackets, e.g., [1][2]. Do not invent citations.\n\n"
+            f"Context from document (numbered for citation):\n{retrieved_context}\n\n"
+            f"User selected references to emphasise (optional):\n{user_references_text}\n\n"
+            f"Question:\n{user_question}"
+        )
 
-    return StreamingResponse(gen(), media_type="text/event-stream")
+        # few-shot 示例（教模型正确引用编号）
+        few_shot_messages = [
+            {
+                "role": "user",
+                "content": (
+                    "Context (numbered for citation):\n"
+                    "[1] Photosynthesis is the process by which plants make food using sunlight.\n"
+                    "[2] Water is transported from roots to leaves through the xylem.\n"
+                    "[3] When plants get enough sunlight, water, air, and nutrients from the soil, they can grow strong and healthy.\n"
+                    "Question:\nExplain how plants obtain the resources needed for photosynthesis."
+                )
+            },
+            {
+                "role": "assistant",
+                "content": (
+                    "Plants obtain the key ingredients for photosynthesis from different sources: they absorb sunlight with their leaves to capture energy.[1] Water is drawn up from the roots through the xylem to reach the leaves where photosynthesis occurs.[2]"
+                )
+            }
+        ]
+
+        messages = few_shot_messages + [
+            {"role": "user", "content": user_prompt}
+        ]
+
+        def gen():
+            # 先把检索到的文档片段发送给前端，type=context
+            context_payload = {
+                "type": "context",
+                "top_docs": [d.page_content for d in top_docs]
+            }
+            yield f"data: {json.dumps(context_payload)}\n\n"
+
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=messages,
+                temperature=0.4,
+                stream=True
+            )
+
+            # 处理 token
+            last_token = ""
+            for chunk in response:
+                if chunk.choices[0].delta.content:
+                    token = chunk.choices[0].delta.content
+                    if token != last_token:
+                        yield f"data: {json.dumps({'type':'token','answer': token})}\n\n"
+                        last_token = token
+
+        return StreamingResponse(gen(), media_type="text/event-stream")
+    except Exception as e:
+        print(f"Error in ask endpoint: {str(e)}")
+        raise HTTPException(500, f"Internal server error: {str(e)}")
