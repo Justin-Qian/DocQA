@@ -8,29 +8,42 @@ from dotenv import load_dotenv
 load_dotenv()
 
 clerk = Clerk(bearer_auth=os.getenv('CLERK_SECRET_KEY'))
+AUTHORIZED_PARTIES = ['http://localhost:3000']
 
-async def get_state(request: Request):
+async def get_user_state(request: Request):
+    """
+    Get user state from Clerk, return the payload of the request state
+    If authentication fails, raise HTTPException with status code 401
+    param:
+        request: FastAPI Request object
+    return:
+        request_state.payload: dict, the payload of the request state
+    raise:
+        HTTPException: if authentication fails
+    """
     try:
-    # 转换FastAPI Request为httpx Request
+        #Transform FastAPI Request to httpx Request
         headers = dict(request.headers)
         method = request.method
         url = str(request.url)
 
-        # 创建httpx Request对象
+        # Create httpx Request object
         httpx_request = httpx.Request(method, url, headers=headers)
 
-        # 使用Clerk SDK验证
+        # Verify with Clerk SDK
         request_state = clerk.authenticate_request(
             httpx_request,
             AuthenticateRequestOptions(
-                authorized_parties=['http://localhost:3000']
+                authorized_parties=AUTHORIZED_PARTIES
             )
         )
 
+        # If authentication fails, raise HTTPException with status code 401
         if not request_state.is_signed_in:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Not authenticated")
 
-        return request_state
+        # Return the payload of the request state
+        return request_state.payload
 
     except Exception as e:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, f"Authentication failed: {str(e)}")
