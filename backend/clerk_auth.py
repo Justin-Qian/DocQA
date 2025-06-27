@@ -1,7 +1,6 @@
 import os
 import httpx
 from clerk_backend_api import Clerk
-from clerk_backend_api.security import authenticate_request
 from clerk_backend_api.security.types import AuthenticateRequestOptions
 from fastapi import HTTPException, status, Request
 from dotenv import load_dotenv
