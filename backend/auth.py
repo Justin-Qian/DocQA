@@ -50,7 +50,7 @@ def verify_token(token: str):
 
     return payload          # 内含 sub = user_id, sid = session_id 等
 
-# ----------------------- FastAPI 依赖：强制登录 ----------------------------- #
+# For FastAPI
 async def require_user(request: Request):
     auth = request.headers.get("Authorization")
     if not auth or not auth.startswith("Bearer "):
