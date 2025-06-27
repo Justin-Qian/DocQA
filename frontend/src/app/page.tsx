@@ -1,12 +1,13 @@
 "use client";
 import { useState, useEffect } from "react";
+import { useAuth } from '@clerk/nextjs';
 import MessageItem from "@/components/MessageItem";
 
 interface Message {
   content: string;
   timestamp: string;
   isUser: boolean;
-  retrieved?: string[]; // 检索到的片段，可选
+  retrieved?: string[]; // Retrieved document snippets, optional
 }
 
 const ORIGINAL_TEXT = [
@@ -19,13 +20,14 @@ const ORIGINAL_TEXT = [
 ];
 
 export default function Home() {
-  const [loading, setLoading] = useState(false);          // 请求 / 流是否仍在进行
-  const [isWaitingResponse, setIsWaitingResponse] = useState(false); // 等待首包
-  const [abortCtrl, setAbortCtrl] = useState<AbortController | null>(null); // 终止用
+  const { getToken } = useAuth();
+  const [loading, setLoading] = useState(false);          // Whether request/stream is in progress
+  const [isWaitingResponse, setIsWaitingResponse] = useState(false); // Waiting for first packet
+  const [abortCtrl, setAbortCtrl] = useState<AbortController | null>(null); // For aborting requests
   const [question, setQuestion] = useState("");
   const [references, setReferences] = useState<string[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
-  const [highlightedSnippet, setHighlightedSnippet] = useState<string | null>(null);// 高亮文档段落
+  const [highlightedSnippet, setHighlightedSnippet] = useState<string | null>(null);// Highlight document paragraphs
 
   useEffect(() => {
     const messagesContainer = document.querySelector('.messages-container');
@@ -34,7 +36,7 @@ export default function Home() {
     }
   }, [messages]);
 
-  // 高亮文档段落
+  // Highlight document paragraphs
   const handleHighlight = (snippet: string | null) => {
     setHighlightedSnippet(snippet);
   };
@@ -44,7 +46,7 @@ export default function Home() {
     setReferences([]);
   };
 
-  // 处理文本选择和拖拽
+  // Handle text selection and drag
   const handleMouseDown = (e: React.MouseEvent) => {
     const container = e.currentTarget as HTMLElement;
     container.draggable = false;
@@ -76,7 +78,7 @@ export default function Home() {
     const userQuestion = question;
     const userReferences = references;
 
-    // 添加用户消息
+    // Add user message
     const userMessage: Message = {
       content: userQuestion,
       timestamp: formatTime(),
@@ -85,18 +87,24 @@ export default function Home() {
     setMessages(prev => [...prev, userMessage]);
     setLoading(true);
     setIsWaitingResponse(true);
-    // 清空输入框和引用标签
+    // Clear input and reference tags
     setQuestion("");
     setReferences([]);
 
-    // 创建 AbortController 用于后续终止
+    // Create AbortController for cancelling requests
     const controller = new AbortController();
     setAbortCtrl(controller);
 
     try {
+      // 🔑 Get Clerk authentication token
+      const token = await getToken();
+
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/ask`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}` // 🔑 Add authentication header
+        },
         body: JSON.stringify({
           question: userQuestion,
           references: userReferences
@@ -104,11 +112,16 @@ export default function Home() {
         signal: controller.signal
       });
 
-      // 尚未插入 AI 回复消息，等待首个 token 到来再插入
+      // 🔑 Check authentication status
+      if (res.status === 401) {
+        throw new Error("Authentication failed, please log in again");
+      }
+
+      // AI reply message not yet inserted, wait for first token to arrive before inserting
       let isFirstToken = true;
       let currentContextDocs: string[] = [];
 
-      // 处理流式响应
+      // Handle streaming response
       const reader = res.body?.getReader();
       const decoder = new TextDecoder();
 
@@ -118,23 +131,23 @@ export default function Home() {
 
         if (value) {
           const chunk = decoder.decode(value);
-          // 按行分割，每行都是一个完整的 SSE 消息
+          // Split by lines, each line is a complete SSE message
           const lines = chunk.split('\n');
 
           for (const line of lines) {
             if (line.startsWith('data: ')) {
               const data = JSON.parse(line.slice(6)); // remove "data: " (the first 6 characters)
 
-              // 处理检索片段
+              // Process retrieved snippets
               if (data.type === 'context') {
                 if (Array.isArray(data.top_docs)) {
                   currentContextDocs = data.top_docs;
                 }
               }
-              // 处理 token
+              // Process tokens
               else if (data.type === 'token' && data.answer) {
                 if (isFirstToken) {
-                  // 首个 token：创建系统消息并关闭 loading
+                  // First token: create system message and close loading
                   setMessages(prev => [
                     ...prev,
                     {
@@ -144,10 +157,10 @@ export default function Home() {
                       retrieved: currentContextDocs
                     }
                   ]);
-                  setIsWaitingResponse(false); // 已收到首包，隐藏动画
+                  setIsWaitingResponse(false); // First packet received, hide animation
                   isFirstToken = false;
                 } else {
-                  // 后续 token：追加内容到最后一条消息
+                  // Subsequent tokens: append content to last message
                   setMessages(prev => {
                     const msgs = [...prev];
                     const last = msgs[msgs.length - 1];
@@ -165,15 +178,17 @@ export default function Home() {
       }
 
     } catch (err: unknown) {
-      const error = err as { name?: string } | undefined;
-      // 如果是用户主动终止导致的 AbortError，静默处理
+      const error = err as { name?: string; message?: string } | undefined;
+      // If it's an AbortError caused by user cancellation, handle silently
       if (error?.name === 'AbortError') {
-        // 已主动终止，无需提示
+        // Already aborted by user, no need to show message
       } else {
         console.error('Error:', error);
-        // 添加错误消息
+        // Add error message
         const errorMessage: Message = {
-          content: "抱歉，处理您的问题时出现错误。请稍后重试。",
+          content: error?.message?.includes("Authentication")
+            ? "Authentication failed, please log in again"
+            : "Sorry, an error occurred while processing your question. Please try again later.",
           timestamp: formatTime(),
           isUser: false
         };
@@ -186,7 +201,7 @@ export default function Home() {
     }
   }
 
-  // 终止当前请求
+  // Abort current request
   const handleAbort = () => {
     if (abortCtrl) {
       abortCtrl.abort();
@@ -200,7 +215,7 @@ export default function Home() {
     <main className="h-[calc(100vh-4rem)] bg-gray-50 overflow-hidden">
       <div className="h-full px-16 py-6 flex flex-col max-w-[1600px] mx-auto">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 flex-1 overflow-hidden">
-          {/* 左侧：阅读区域 */}
+          {/* Left side: Reading area */}
           <div className="bg-white rounded-lg shadow-md flex flex-col overflow-hidden">
             <h2 className="text-xl font-semibold p-6 border-b-2 border-gray-300 flex-shrink-0">Document</h2>
             <div
@@ -222,10 +237,10 @@ export default function Home() {
             </div>
           </div>
 
-          {/* 右侧：聊天区域 */}
+          {/* Right side: Chat area */}
           <div className="bg-white rounded-lg shadow-md flex flex-col overflow-hidden">
 
-            {/* 消息列表 */}
+            {/* Message list */}
             <div className="p-6 overflow-y-auto flex-1 messages-container">
               {messages.map((message, index) => (
                 <MessageItem
@@ -244,9 +259,9 @@ export default function Home() {
               )}
             </div>
 
-            {/* 输入区域 */}
+            {/* Input area */}
             <div className="p-6 border-t-2 border-gray-300 flex-shrink-0">
-              {/* 引用标签 */}
+              {/* Reference tags */}
               <div className="flex flex-wrap gap-2 mb-4">
                 {references.map((ref, index) => (
                   <div key={index} className="relative group">
@@ -272,7 +287,7 @@ export default function Home() {
                 ))}
               </div>
 
-              {/* 输入框 */}
+              {/* Input field */}
               <div className="flex gap-3">
                 <div className="relative flex-1 group">
                   <input
