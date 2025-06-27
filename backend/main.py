@@ -57,6 +57,7 @@ async def ask(
     request: Request,
     state = Depends(get_user_state)
 ):
+    print(type(state))
     # 获取用户信息
     user_id = state.get("sub", "unknown")
     user_email = state.get("email", "unknown")

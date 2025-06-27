@@ -14,12 +14,15 @@ async def get_user_state(request: Request):
     """
     Get user state from Clerk, return the payload of the request state
     If authentication fails, raise HTTPException with status code 401
-    param:
-        request: FastAPI Request object
-    return:
-        request_state.payload: dict, the payload of the request state
-    raise:
-        HTTPException: if authentication fails
+    Clerk session token claims (JWT payload):
+    - sid (session ID): Unique identifier for the current session
+    - sub (user ID): Unique identifier for the current user
+    - azp (authorized party): The Origin header from the original Frontend API request, typically the application URL
+    - exp (expiration time): Unix timestamp when the token expires, set by Token lifetime JWT template setting
+    - fva (factor verification age): Minutes since last verification of first/second factors respectively
+    - iat (issued at): Unix timestamp when the token was issued
+    - iss (issuer): Frontend API URL of your Clerk instance (dev/prod)
+    - nbf (not before): Unix timestamp before which token is invalid, set by Allowed Clock Skew setting
     """
     try:
         #Transform FastAPI Request to httpx Request
