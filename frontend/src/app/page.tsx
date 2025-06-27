@@ -197,13 +197,8 @@ export default function Home() {
   };
 
   return (
-    <main className="h-screen bg-gray-50 overflow-hidden">
+    <main className="h-[calc(100vh-4rem)] bg-gray-50 overflow-hidden">
       <div className="h-full px-16 py-6 flex flex-col max-w-[1600px] mx-auto">
-        <h1 className="text-2xl font-bold mb-4 flex-shrink-0">
-          DocQA Demo 🌿
-          <span className="ml-3 text-sm text-gray-500">by Yujia Qian</span>
-        </h1>
-
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 flex-1 overflow-hidden">
           {/* 左侧：阅读区域 */}
           <div className="bg-white rounded-lg shadow-md flex flex-col overflow-hidden">
