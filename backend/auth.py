@@ -17,7 +17,7 @@ def _get_public_key(token: str):
     kid   = jwt.get_unverified_header(token)["kid"]
     for key in jwks:
         if key["kid"] == kid:
-            return jwk.construct(key)                  # ✅ 正确做法
+            return jwk.construct(key)
     raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid key ID")
 
 def _verify_signature_and_decode(token: str):
